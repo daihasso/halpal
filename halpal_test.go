@@ -146,7 +146,9 @@ func TestCreateHalItemBasic(t *testing.T) {
         Name: "footest",
     }
 
-    hal := NewHalItem(ctxWithReq)
+    hal, err := NewHalItem(ctxWithReq)
+    g.Expect(err).To(gm.BeNil())
+
     err = hal.Embed("foo", foo)
     g.Expect(err).To(gm.BeNil())
 
@@ -155,7 +157,7 @@ func TestCreateHalItemBasic(t *testing.T) {
 
     t.Log("Marshaled hal data:", string(marshaledHal))
 
-    g.Expect(marshaledHal).To(gm.BeEquivalentTo(expected))
+    g.Expect(marshaledHal).To(gm.MatchJSON(expected))
 }
 
 func TestCreateHalItemMultipleEmbedded(t *testing.T) {
@@ -183,7 +185,9 @@ func TestCreateHalItemMultipleEmbedded(t *testing.T) {
         },
     }
 
-    hal := NewHalItem(ctxWithReq)
+    hal, err := NewHalItem(ctxWithReq)
+    g.Expect(err).To(gm.BeNil())
+
     err = hal.Embed("foos", foos)
     g.Expect(err).To(gm.BeNil())
 
@@ -192,7 +196,7 @@ func TestCreateHalItemMultipleEmbedded(t *testing.T) {
 
     t.Log("Marshaled hal data:", string(marshaledHal))
 
-    g.Expect(marshaledHal).To(gm.BeEquivalentTo(expected))
+    g.Expect(marshaledHal).To(gm.MatchJSON(expected))
 }
 
 func TestCreateHalItemMultipleEmbeddedBulk(t *testing.T) {
@@ -221,7 +225,9 @@ func TestCreateHalItemMultipleEmbeddedBulk(t *testing.T) {
         Name: "footest2",
     }
 
-    hal := NewHalItem(ctxWithReq)
+    hal, err := NewHalItem(ctxWithReq)
+    g.Expect(err).To(gm.BeNil())
+
     err = hal.EmbedMany(
         EmbeddedItem("foo1", foo),
         EmbeddedItem("foo2", foo2),
@@ -233,5 +239,126 @@ func TestCreateHalItemMultipleEmbeddedBulk(t *testing.T) {
 
     t.Log("Marshaled hal data:", string(marshaledHal))
 
-    g.Expect(marshaledHal).To(gm.BeEquivalentTo(expected))
+    g.Expect(marshaledHal).To(gm.MatchJSON(expected))
+}
+
+func TestCreateHalItemEmbeddedInStruct(t *testing.T) {
+    g := gm.NewGomegaWithT(t)
+
+    expected := `{"_links":{"self":{"href":"/test?page=2"}},` +
+        `"_embedded":{"foo1":[{"Id":76,"Name":"footest"}]},` +
+        `"count":5,"total":6}`
+
+    req, err := http.NewRequest("GET", "https://myapp/test?page=2", nil)
+    g.Expect(err).To(gm.BeNil())
+
+    t.Log(req.Host)
+
+    ctxWithReq := context.WithValue(context.Background(), "request", req)
+
+    halStruct := struct{
+        HalItem
+
+        Count int `json:"count"`
+        Total int `json:"total"`
+    }{
+        HalItem: *NewHalItemP(ctxWithReq),
+
+        Count: 5,
+        Total: 6,
+    }
+
+    foo := []fooObjectTest{
+        fooObjectTest{
+            Id: 76,
+            Name: "footest",
+        },
+    }
+
+    err = halStruct.Embed("foo1", foo)
+    g.Expect(err).To(gm.BeNil())
+
+    marshaledHal, err := json.Marshal(halStruct)
+    g.Expect(err).To(gm.BeNil())
+
+    t.Log("Marshaled hal data:", string(marshaledHal))
+
+    g.Expect(marshaledHal).To(gm.MatchJSON(expected))
+}
+
+func TestCreateHalItemWithExtras(t *testing.T) {
+    g := gm.NewGomegaWithT(t)
+
+    expected := `{"count":5,"total":6}`
+
+    req, err := http.NewRequest("GET", "https://myapp/test?page=2", nil)
+    g.Expect(err).To(gm.BeNil())
+
+    t.Log(req.Host)
+
+    hal, err := NewHalItem(context.Background())
+    g.Expect(err).To(gm.BeNil())
+
+    hal.AddExtras(ItemExtras{
+        "count": 5,
+        "total": 6,
+    })
+
+    marshaledHal, err := json.Marshal(hal)
+    g.Expect(err).To(gm.BeNil())
+
+    t.Log("Marshaled hal data:", string(marshaledHal))
+
+    g.Expect(marshaledHal).To(gm.MatchJSON(expected))
+}
+
+func TestAddLinkToHalItem(t *testing.T) {
+    g := gm.NewGomegaWithT(t)
+
+    expected := `{"_links":{"next":{"href":"https://myapp/test?page=3"}}}`
+
+    req, err := http.NewRequest("GET", "https://myapp/test?page=2", nil)
+    g.Expect(err).To(gm.BeNil())
+
+    t.Log(req.Host)
+
+    hal, err := NewHalItem(context.Background(), Links(Next("/test?page=3")))
+    g.Expect(err).To(gm.BeNil())
+
+    hal.AddLink(Next("https://myapp/test?page=3"))
+
+    marshaledHal, err := json.Marshal(hal)
+    g.Expect(err).To(gm.BeNil())
+
+    t.Log("Marshaled hal data:", string(marshaledHal))
+
+    g.Expect(marshaledHal).To(gm.MatchJSON(expected))
+}
+
+func TestLinksOptionHalItem(t *testing.T) {
+    g := gm.NewGomegaWithT(t)
+
+    expected := `{"_links":{"self":{"href":"/test?page=2"},` +
+        `"next":{"href":"/test?page=3"},"prev":{"href":"/test"}}}`
+
+    req, err := http.NewRequest("GET", "https://myapp/test?page=2", nil)
+    g.Expect(err).To(gm.BeNil())
+
+    t.Log(req.Host)
+
+    ctxWithReq := context.WithValue(context.Background(), "request", req)
+
+    hal, err := NewHalItem(
+        ctxWithReq, Links(Next("/test?page=3"), Prev("/test")),
+    )
+    g.Expect(err).To(gm.BeNil())
+
+    t.Logf("Links: %#+v", hal.Links)
+
+    marshaledHal, err := json.Marshal(hal)
+    g.Expect(err).To(gm.BeNil())
+
+    t.Log("Marshaled hal data:", string(marshaledHal))
+
+    g.Expect(marshaledHal).To(gm.MatchJSON(expected))
 }
